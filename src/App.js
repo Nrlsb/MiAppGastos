@@ -1,70 +1,68 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { db } from './firebase'; // Importar la instancia de db
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import './App.css';
 
 const CATEGORIES = ["Comida", "Transporte", "Ocio", "Hogar", "Salud", "Otros"];
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#FF4560'];
 
 function App() {
-  // Estado para los gastos, inicializado desde localStorage
-  const [expenses, setExpenses] = useState(() => {
-    const savedExpenses = localStorage.getItem('expenses');
-    return savedExpenses ? JSON.parse(savedExpenses) : [];
-  });
-
-  // Estados para los campos del formulario
+  const [expenses, setExpenses] = useState([]);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [person, setPerson] = useState('');
-
-  // Estado para saber qué gasto se está editando
   const [editingId, setEditingId] = useState(null);
-
-  // Estados para el filtrado y ordenamiento
   const [filterCategory, setFilterCategory] = useState('Todas');
   const [sortOrder, setSortOrder] = useState('date-desc');
 
-  // Guardar en localStorage cada vez que los gastos cambien
-  useEffect(() => {
-    localStorage.setItem('expenses', JSON.stringify(expenses));
-  }, [expenses]);
+  const expensesCollectionRef = collection(db, "gastos");
 
-  // Limpia el formulario
+  // Función para obtener los gastos de Firebase
+  const getExpenses = async () => {
+    const data = await getDocs(expensesCollectionRef);
+    const expensesData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+    setExpenses(expensesData);
+  };
+
+  // Cargar los gastos al iniciar el componente
+  useEffect(() => {
+    getExpenses();
+  }, []);
+
   const resetForm = () => {
     setDescription('');
     setAmount('');
     setCategory(CATEGORIES[0]);
     setDate(new Date().toISOString().slice(0, 10));
     setPerson('');
+    setEditingId(null);
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!description || !amount || !category || !date || !person) return;
 
+    const expenseData = {
+      description,
+      amount: parseFloat(amount),
+      category,
+      date,
+      person,
+    };
+
     if (editingId) {
-      // --- Lógica de Actualización ---
-      const updatedExpenses = expenses.map(exp =>
-        exp.id === editingId
-          ? { ...exp, description, amount: parseFloat(amount), category, date, person }
-          : exp
-      );
-      setExpenses(updatedExpenses);
-      setEditingId(null);
+      // --- Lógica de Actualización en Firebase ---
+      const expenseDoc = doc(db, "gastos", editingId);
+      await updateDoc(expenseDoc, expenseData);
     } else {
-      // --- Lógica de Creación ---
-      const newExpense = {
-        id: Date.now(),
-        description,
-        amount: parseFloat(amount),
-        category,
-        date,
-        person,
-      };
-      setExpenses([...expenses, newExpense]);
+      // --- Lógica de Creación en Firebase ---
+      await addDoc(expensesCollectionRef, expenseData);
     }
+    
+    getExpenses(); // Recargar gastos después de la operación
     resetForm();
   };
 
@@ -78,12 +76,13 @@ function App() {
   };
 
   const handleCancelEdit = () => {
-    setEditingId(null);
     resetForm();
   };
 
-  const deleteExpense = (id) => {
-    setExpenses(expenses.filter((exp) => exp.id !== id));
+  const deleteExpense = async (id) => {
+    const expenseDoc = doc(db, "gastos", id);
+    await deleteDoc(expenseDoc);
+    getExpenses(); // Recargar gastos
   };
 
   // Procesar datos para el gráfico
